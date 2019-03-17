@@ -1,9 +1,8 @@
 import Browser
 import Svg
-import Svg.Attributes exposing (..)
+import Svg.Attributes exposing (cx, cy, r, fill, width, height)
 import Html
 import Html.Attributes exposing (style)
-import Html.Events exposing (onClick)
 import Svg.Events exposing (onClick)
 
 main = 
@@ -26,12 +25,24 @@ update move board = boardAmend move board
 view board =  circleBoard board
 
 
-circleBoard model = Html.div [] (List.indexedMap circleColumn model)
-
-circleColumn x n = Html.div [style "float" "left", style "min-height" "10px", style "width" "50px"] (List.map (circleElement x) (List.range 0 (n-1)))
-
-circleElement x y = Svg.svg [viewBox "0 0 50 50", width "50px", style "display" "block"] [Svg.circle [onClick (x,y), cx "25", cy "25", r "20", fill "#0B79CE" ] []]
-
-
 boardAmend move board = 
   List.indexedMap (\n -> \x -> if (n == Tuple.first move) then Tuple.second move else x) board
+
+
+circleBoard board = Svg.svg [svgWidth board, svgHeight board] (List.map circleFromCoordinate (coordinatesFromBoard board))
+
+circleFromCoordinate (x, y) = Svg.circle [onClick (x, y), cx (svgCoordinate x), cy (svgCoordinate y), r (String.fromInt(circleRadius)), fill blueColour ] []
+
+coordinatesFromBoard board = List.concat (List.indexedMap (\x -> \n -> (List.map (Tuple.pair x) (List.range 0 (n-1)))) board)
+
+
+circleRadius = 20
+circlePadding = 5
+blueColour = "#0B79CE"
+circleDimension = 2 * (circleRadius + circlePadding)
+boardWidth board = (List.length board) * circleDimension
+boardHeight board = (Maybe.withDefault 0 (List.maximum board)) * circleDimension
+svgWidth board = width (String.fromInt(boardWidth board))
+svgHeight board = height (String.fromInt(boardHeight board))
+svgCoordinate x = String.fromInt((circleRadius + circlePadding) * (1 + 2 * x))
+
