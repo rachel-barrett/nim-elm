@@ -4,11 +4,13 @@ import Svg.Attributes exposing (cx, cy, r, fill, width, height)
 import Html exposing (Html)
 import Html.Attributes exposing (style)
 import Svg.Events exposing (onClick, onMouseOver, onMouseOut)
+import Random
 
 main = 
-  Browser.sandbox
+  Browser.element
     { init = init
-    , update = update 
+    , update = update
+    , subscriptions = subscriptions
     , view = view
     }
 
@@ -20,28 +22,46 @@ type alias Model =
   }
 type alias Board = List Int
 
-type Msg = Select (Int, Int) | Highlight (Int, Int) | UnHighlight
+type Msg = 
+  Select (Int, Int) 
+  | Highlight (Int, Int) 
+  | UnHighlight
+  | NewBoard Board
 
 -- init --
 
-init: Model
-init = 
-  { board = [5,2,0,4]
-  , highlight = Maybe.Nothing
-  }
+init: () -> (Model, Cmd Msg)
+init _ = 
+  ( { board = []
+    , highlight = Maybe.Nothing
+    }
+  , Random.generate NewBoard (Random.list numberOfColumns (Random.int 0 maxPerColumn))
+  )
+
+numberOfColumns = 5
+maxPerColumn = 8
 
 -- update --
 
-update: Msg -> Model -> Model
+update: Msg -> Model -> (Model, Cmd Msg)
 update msg model =
-  case msg of
-    Select move -> {model | board = boardAmend move model.board}
-    Highlight highlight -> {model | highlight = Maybe.Just highlight}
-    UnHighlight -> {model | highlight = Maybe.Nothing}
+  ( case msg of
+      Select move -> {model | board = boardAmend move model.board}
+      Highlight highlight -> {model | highlight = Maybe.Just highlight}
+      UnHighlight -> {model | highlight = Maybe.Nothing}
+      NewBoard newBoard -> {model | board = newBoard}
+  , Cmd.none
+  )
 
 boardAmend move board = 
   board
     |> List.indexedMap (\n -> \x -> if (n == Tuple.first move) then (Tuple.second move) else x)    
+
+-- subscriptions --
+
+subscriptions : Model -> Sub Msg
+subscriptions model = 
+  Sub.none
 
 -- view --
 
