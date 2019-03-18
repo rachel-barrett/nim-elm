@@ -1,10 +1,18 @@
+module Main exposing (..)
+
 import Browser
 import Svg
 import Svg.Attributes exposing (cx, cy, r, fill, width, height)
 import Html exposing (Html)
 import Html.Attributes exposing (style)
 import Svg.Events exposing (onClick, onMouseOver, onMouseOut)
-import Random
+import Random exposing (Generator)
+import Process
+import Time
+import Task exposing (Task)
+import Bitwise
+import Maybe.Extra
+import Flip
 
 main = 
   Browser.element
@@ -19,14 +27,17 @@ main =
 type alias Model = 
   { board: Board
   , highlight: Maybe (Int, Int)
+  , currentPlayer: Player
   }
 type alias Board = List Int
+type Player = Human | Computer
 
 type Msg = 
-  Select (Int, Int) 
+  HumanMove (Int, Int) 
   | Highlight (Int, Int) 
   | UnHighlight
   | NewBoard Board
+  | ComputerMove (Int, Int)
 
 -- init --
 
@@ -34,6 +45,7 @@ init: () -> (Model, Cmd Msg)
 init _ = 
   ( { board = []
     , highlight = Maybe.Nothing
+    , currentPlayer = Human
     }
   , Random.generate NewBoard (Random.list numberOfColumns (Random.int 0 maxPerColumn))
   )
@@ -45,17 +57,50 @@ maxPerColumn = 8
 
 update: Msg -> Model -> (Model, Cmd Msg)
 update msg model =
-  ( case msg of
-      Select move -> {model | board = boardAmend move model.board}
-      Highlight highlight -> {model | highlight = Maybe.Just highlight}
-      UnHighlight -> {model | highlight = Maybe.Nothing}
-      NewBoard newBoard -> {model | board = newBoard}
-  , Cmd.none
-  )
+  case msg of
+    HumanMove move -> 
+      if model.currentPlayer /= Human
+        then (model, Cmd.none)
+        else let newBoard = boardAmend move model.board in ({model | board = newBoard, currentPlayer = Computer }, computerMove newBoard)
+    Highlight highlight -> ({model | highlight = Maybe.Just highlight}, Cmd.none)
+    UnHighlight -> ({model | highlight = Maybe.Nothing}, Cmd.none)
+    NewBoard newBoard -> ({model | board = newBoard}, Cmd.none)
+    ComputerMove move -> ({model | board = boardAmend move model.board, currentPlayer = Human}, Cmd.none)
 
 boardAmend move board = 
   board
-    |> List.indexedMap (\n -> \x -> if (n == Tuple.first move) then (Tuple.second move) else x)    
+    |> List.indexedMap (\n -> \x -> if (n == Tuple.first move) then (Tuple.second move) else x)
+
+computerMove : Board -> Cmd Msg
+computerMove board = 
+  Process.sleep (1000)
+    |> Task.andThen (\_ -> Task.map ComputerMove (optimalMove board))
+    |> Task.perform identity
+
+optimalMove: Board -> Task Never (Int, Int)
+optimalMove board = 
+  let bitsum = List.foldr Bitwise.xor 0 board in 
+    board
+      |> List.indexedMap (\x -> \y -> 
+          let newy = Bitwise.xor y bitsum in 
+            if (newy < y) then Maybe.Just (x, newy) else Maybe.Nothing
+          )
+      |> List.map (Maybe.Extra.toList) >> List.concat
+      |> randomPick
+      |> Flip.flip Maybe.Extra.or (randomPick <| coordinatesFromBoard board)
+      |> Maybe.withDefault (Random.constant (0,0))
+      |> taskFromRandom
+
+randomPick: List a -> Maybe (Generator a)
+randomPick list = 
+  case list of
+    head :: tail -> Maybe.Just (Random.uniform head tail)
+    _ -> Maybe.Nothing
+
+taskFromRandom: Generator a -> Task Never a
+taskFromRandom generator = 
+  Time.now |> Task.map (Time.posixToMillis >> Random.initialSeed >> Random.step generator >> Tuple.first)
+
 
 -- subscriptions --
 
@@ -73,21 +118,23 @@ view = modelViewFromModel >> display
 modelViewFromModel: Model -> ModelView
 modelViewFromModel model = 
   coordinatesFromBoard model.board
-    |> withHighlights model.highlight
+    |> withHighlights model.currentPlayer model.highlight
 
 coordinatesFromBoard board = 
   board
     |> List.indexedMap (\x -> \n -> (List.map (Tuple.pair x) (List.range 0 (n-1))))
     |> List.concat
 
-withHighlights highlight coordinates = 
+withHighlights currentPlayer highlight coordinates = 
   coordinates
-    |> List.map (\coordinate -> Tuple.pair coordinate (shouldHighlightCoordinate highlight coordinate))
+    |> List.map (\coordinate -> Tuple.pair coordinate (shouldHighlightCoordinate currentPlayer highlight coordinate))
 
-shouldHighlightCoordinate highlight (x, y) = 
-  case highlight of
-    Maybe.Just (xh, yh) -> x == xh && y >= yh
-    Maybe.Nothing -> False 
+shouldHighlightCoordinate currentPlayer highlight (x, y) =
+  case currentPlayer of
+    Human -> case highlight of
+      Maybe.Just (xh, yh) -> x == xh && y >= yh
+      Maybe.Nothing -> False
+    Computer -> False
       
   -- display --
 
@@ -99,14 +146,15 @@ display modelView =
 
 circleFromCoordinateAndHighlight ((x, y), highlight) = 
   Svg.circle 
-    [ onClick (Select (x, y)) 
-    , onMouseOver (Highlight (x, y)) 
-    , onMouseOut UnHighlight
-    , cx (svgCoordinate x)
-    , cy (svgCoordinate y) 
-    , r (String.fromInt(circleRadius)) 
-    , fill (if (highlight) then blueHighlight else blueColour) 
-    ] []
+    ( [ cx (svgCoordinate x)
+      , cy (svgCoordinate y) 
+      , r (String.fromInt(circleRadius)) 
+      , fill (if (highlight) then blueHighlight else blueColour)
+      , onClick (HumanMove (x, y)) 
+      , onMouseOver (Highlight (x, y)) 
+      , onMouseOut UnHighlight     
+      ]      
+    ) []
 
 circleDimension = 2 * (circleRadius + circlePadding)
 boardWidth modelView = (Maybe.withDefault 0 (List.maximum (List.map (\x -> Tuple.first (Tuple.first x)) modelView)) + 1) * circleDimension
@@ -129,6 +177,8 @@ type alias ModelView = List ((Int, Int), Bool)
 -- need to be able to use lambda functions without brackets
 -- in haskell is it ok to use parameter names that are already bound?
 -- would be good if case classes didn't require commas
+
+-- one issue we have is that the event is only triggered on entring the circle
   
 
 
