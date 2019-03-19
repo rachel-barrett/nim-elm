@@ -4,7 +4,7 @@ import Browser
 import Svg
 import Svg.Attributes exposing (cx, cy, r, fill, width, height)
 import Html exposing (Html)
-import Html.Attributes exposing (style, hidden)
+import Html.Attributes exposing (style, hidden, href, rel)
 import Svg.Events exposing (onClick, onMouseOver, onMouseOut)
 import Random exposing (Generator)
 import Process
@@ -14,6 +14,8 @@ import Bitwise
 import Maybe.Extra
 import Flip
 import Html.Events exposing (onClick)
+import Bootstrap.Modal as Modal
+import Bootstrap.Button as Button
 
 main = 
   Browser.element
@@ -29,10 +31,11 @@ type alias Model =
   { board: Board
   , highlight: Maybe (Int, Int)
   , gameState: GameState
+  , showInstructions: Bool
   }
 type alias Board = List Int
 type Player = Human | Computer
-type GameState = Choose | Play Player
+type GameState = Choose | Play Player | Winner Player
 
 type Msg = 
   HumanMove (Int, Int) 
@@ -41,6 +44,9 @@ type Msg =
   | NewBoard Board
   | ComputerMove (Int, Int)
   | GoFirst Player
+  | ShowInstructions
+  | HideInstructions
+  | NewGame
 
 -- init --
 
@@ -49,6 +55,7 @@ init _ =
   ( { board = []
     , highlight = Maybe.Nothing
     , gameState = Choose
+    , showInstructions = False
     }
   , Random.generate NewBoard (Random.list numberOfColumns (Random.int 0 maxPerColumn))
   )
@@ -64,12 +71,21 @@ update msg model =
     HumanMove move -> 
       if model.gameState /= Play Human
         then (model, Cmd.none)
-        else let newBoard = boardAmend move model.board in ({model | board = newBoard, gameState = Play Computer }, computerMove newBoard)
+        else 
+          let newBoard = boardAmend move model.board 
+              newGameState = if (List.foldr (+) 0 newBoard == 0) then Winner Human else Play Computer
+          in ({model | board = newBoard, gameState = newGameState }, computerMove newBoard)
     Highlight highlight -> ({model | highlight = Maybe.Just highlight}, Cmd.none)
     UnHighlight -> ({model | highlight = Maybe.Nothing}, Cmd.none)
     NewBoard newBoard -> ({model | board = newBoard}, Cmd.none)
-    ComputerMove move -> ({model | board = boardAmend move model.board, gameState = Play Human}, Cmd.none)
+    ComputerMove move -> 
+      let newBoard = boardAmend move model.board
+          newGameState = if (List.foldr (+) 0 newBoard == 0) then Winner Computer else Play Human
+      in ({model | board = newBoard, gameState = newGameState}, Cmd.none)
     GoFirst player -> ({model | gameState = Play player}, if player == Computer then computerMove model.board else Cmd.none)
+    ShowInstructions -> ({model | showInstructions = True }, Cmd.none)
+    HideInstructions -> ({model | showInstructions = False}, Cmd.none)
+    NewGame -> init ()
 
 boardAmend move board = 
   board
@@ -77,7 +93,7 @@ boardAmend move board =
 
 computerMove : Board -> Cmd Msg
 computerMove board = 
-  Process.sleep (1000)
+  Process.sleep (2000)
     |> Task.andThen (\_ -> Task.map ComputerMove (optimalMove board))
     |> Task.perform identity
 
@@ -116,11 +132,57 @@ subscriptions model =
 
 view: Model -> Html Msg
 view model = 
-  Html.div []
-    [ viewBoard model
+  Html.div [style "padding-left" "10px"]
+    [ Html.node "title" [] [Html.text "Nim"]
+    , viewMenu
+    , Html.div [hidden (model.showInstructions == False)]
+        [instructionsModal]
+    , showGameState model.gameState
+    , viewBoard model
     , Html.div [hidden (model.gameState /= Choose)]
         [viewQuestion]
     ]
+
+  -- viewMenu --
+
+viewMenu : Html Msg
+viewMenu = 
+  Html.div []
+    [ Html.h3 [style "padding-top" "10px"] [Html.text "Nim"]
+    , Html.button [onClick ShowInstructions] [Html.text "How to Play"]
+    , Html.button [onClick NewGame] [Html.text "New Game"]
+    ]
+
+  -- instructionsModal --
+
+instructionsModal: Html Msg
+instructionsModal = 
+  Html.div []
+    [ Html.node "link" [ href "https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css", rel "stylesheet" ] []
+    , Modal.config HideInstructions
+        |> Modal.h3 [] [Html.text "How to Play"]
+        |> Modal.body [] [instructions]
+        |> Modal.view Modal.shown
+    ]
+
+instructions: Html Msg 
+instructions = 
+  Html.div []
+    [ Html.p [] [ Html.text "The game board consists of counters arranged into columns. You take it in turns with the computer to remove as many counters as you like from a single column. The aim of the game is to remove the last counter."]
+    , Html.p [] [ Html.text "You may choose if you would like to go first or second."]
+    ]
+
+  -- showGameState --
+
+showGameState : GameState -> Html Msg
+showGameState gameState = 
+  let message = case gameState of
+        Choose -> "Choose who goes first"
+        Play Human -> "Your turn"
+        Play Computer -> "Computer's turn" 
+        Winner Human -> "You win!"
+        Winner Computer -> "You lose :("
+  in Html.h5 [style "padding-top" "20px", style "padding-bottom" "10px"] [Html.text message]
 
   -- viewBoard --
 
@@ -188,9 +250,9 @@ type alias BoardView = List ((Int, Int), Bool)
 
 viewQuestion: Html Msg
 viewQuestion =
-  Html.div []
+  Html.div [style "padding-top" "10px", style "padding-bottom" "10px"]
     [ Html.text "Would you like to go first or second?"
-    , Html.div []
+    , Html.div [style "padding-top" "5px"]
       [ Html.button [onClick (GoFirst Human)] [Html.text "First"]
       , Html.button [onClick (GoFirst Computer)] [Html.text "Second"]
       ]
@@ -198,7 +260,7 @@ viewQuestion =
 
 -- notes --
 
--- would be really nice to have a haskell where, that would read more naturally
+-- would be really nice to have a haskell `where`, that would read more naturally
 -- also annoying that you can't define types within lets
 -- need to be able to use lambda functions without brackets
 -- in haskell is it ok to use parameter names that are already bound?
