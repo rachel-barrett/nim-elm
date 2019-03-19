@@ -4,7 +4,7 @@ import Browser
 import Svg
 import Svg.Attributes exposing (cx, cy, r, fill, width, height)
 import Html exposing (Html)
-import Html.Attributes exposing (style)
+import Html.Attributes exposing (style, hidden)
 import Svg.Events exposing (onClick, onMouseOver, onMouseOut)
 import Random exposing (Generator)
 import Process
@@ -13,6 +13,7 @@ import Task exposing (Task)
 import Bitwise
 import Maybe.Extra
 import Flip
+import Html.Events exposing (onClick)
 
 main = 
   Browser.element
@@ -27,10 +28,11 @@ main =
 type alias Model = 
   { board: Board
   , highlight: Maybe (Int, Int)
-  , currentPlayer: Player
+  , gameState: GameState
   }
 type alias Board = List Int
 type Player = Human | Computer
+type GameState = Choose | Play Player
 
 type Msg = 
   HumanMove (Int, Int) 
@@ -38,6 +40,7 @@ type Msg =
   | UnHighlight
   | NewBoard Board
   | ComputerMove (Int, Int)
+  | GoFirst Player
 
 -- init --
 
@@ -45,7 +48,7 @@ init: () -> (Model, Cmd Msg)
 init _ = 
   ( { board = []
     , highlight = Maybe.Nothing
-    , currentPlayer = Human
+    , gameState = Choose
     }
   , Random.generate NewBoard (Random.list numberOfColumns (Random.int 0 maxPerColumn))
   )
@@ -59,13 +62,14 @@ update: Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
     HumanMove move -> 
-      if model.currentPlayer /= Human
+      if model.gameState /= Play Human
         then (model, Cmd.none)
-        else let newBoard = boardAmend move model.board in ({model | board = newBoard, currentPlayer = Computer }, computerMove newBoard)
+        else let newBoard = boardAmend move model.board in ({model | board = newBoard, gameState = Play Computer }, computerMove newBoard)
     Highlight highlight -> ({model | highlight = Maybe.Just highlight}, Cmd.none)
     UnHighlight -> ({model | highlight = Maybe.Nothing}, Cmd.none)
     NewBoard newBoard -> ({model | board = newBoard}, Cmd.none)
-    ComputerMove move -> ({model | board = boardAmend move model.board, currentPlayer = Human}, Cmd.none)
+    ComputerMove move -> ({model | board = boardAmend move model.board, gameState = Play Human}, Cmd.none)
+    GoFirst player -> ({model | gameState = Play player}, if player == Computer then computerMove model.board else Cmd.none)
 
 boardAmend move board = 
   board
@@ -111,35 +115,45 @@ subscriptions model =
 -- view --
 
 view: Model -> Html Msg
-view = modelViewFromModel >> display
+view model = 
+  Html.div []
+    [ viewBoard model
+    , Html.div [hidden (model.gameState /= Choose)]
+        [viewQuestion]
+    ]
 
-  -- modelViewFromModel --
+  -- viewBoard --
 
-modelViewFromModel: Model -> ModelView
-modelViewFromModel model = 
+viewBoard : Model -> Html Msg
+viewBoard = boardViewFromModel >> displayBoard
+
+    -- modelViewFromModel --
+
+boardViewFromModel: Model -> BoardView
+boardViewFromModel model = 
   coordinatesFromBoard model.board
-    |> withHighlights model.currentPlayer model.highlight
+    |> withHighlights model.gameState model.highlight
 
 coordinatesFromBoard board = 
   board
     |> List.indexedMap (\x -> \n -> (List.map (Tuple.pair x) (List.range 0 (n-1))))
     |> List.concat
 
-withHighlights currentPlayer highlight coordinates = 
+withHighlights gameState highlight coordinates = 
   coordinates
-    |> List.map (\coordinate -> Tuple.pair coordinate (shouldHighlightCoordinate currentPlayer highlight coordinate))
+    |> List.map (\coordinate -> Tuple.pair coordinate (shouldHighlightCoordinate gameState highlight coordinate))
 
-shouldHighlightCoordinate currentPlayer highlight (x, y) =
-  case currentPlayer of
-    Human -> case highlight of
+shouldHighlightCoordinate gameState highlight (x, y) =
+  case gameState of
+    Play Human -> case highlight of
       Maybe.Just (xh, yh) -> x == xh && y >= yh
       Maybe.Nothing -> False
-    Computer -> False
+    _ -> False
       
-  -- display --
+    -- displayBoard --
 
-display: ModelView -> Html Msg
-display modelView =
+displayBoard: BoardView -> Html Msg
+displayBoard modelView =
   Svg.svg 
     [ width (String.fromInt(boardWidth modelView)), height (String.fromInt(boardHeight modelView))]
     (List.map circleFromCoordinateAndHighlight modelView)
@@ -166,9 +180,21 @@ circlePadding = 5
 blueColour = "#0B79CE"
 blueHighlight = "#84c1ff"
 
-  -- 
+    -- 
 
-type alias ModelView = List ((Int, Int), Bool)
+type alias BoardView = List ((Int, Int), Bool)
+
+  -- viewQuestion --
+
+viewQuestion: Html Msg
+viewQuestion =
+  Html.div []
+    [ Html.text "Would you like to go first or second?"
+    , Html.div []
+      [ Html.button [onClick (GoFirst Human)] [Html.text "First"]
+      , Html.button [onClick (GoFirst Computer)] [Html.text "Second"]
+      ]
+    ]
 
 -- notes --
 
@@ -177,6 +203,7 @@ type alias ModelView = List ((Int, Int), Bool)
 -- need to be able to use lambda functions without brackets
 -- in haskell is it ok to use parameter names that are already bound?
 -- would be good if case classes didn't require commas
+-- it should be more like a state machine in that certain messages can only be triggered in certain states
 
 -- one issue we have is that the event is only triggered on entring the circle
   
