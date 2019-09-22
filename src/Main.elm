@@ -37,12 +37,12 @@ type GameState = Choose | Play Player | Winner Player
 type Player = Human | Computer
 
 type Msg = 
-  HumanMove (Int, Int) 
+  NewBoard Board
+  | GoFirst Player
   | Highlight (Int, Int) 
   | UnHighlight
-  | NewBoard Board
+  | HumanMove (Int, Int)
   | ComputerMove (Int, Int)
-  | GoFirst Player
   | ShowInstructions
   | HideInstructions
   | NewGame
@@ -71,6 +71,16 @@ maxPerColumn = 8
 update: Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
+    NewBoard newBoard -> ({model | board = newBoard}, Cmd.none)
+    GoFirst player ->
+      let
+        newGameState = Play player
+      in
+        ({model | gameState = newGameState}
+        , if newGameState == Play Computer then computerPlay model.board else Cmd.none
+        )
+    Highlight highlight -> ({model | highlight = Maybe.Just highlight}, Cmd.none)
+    UnHighlight -> ({model | highlight = Maybe.Nothing}, Cmd.none)
     HumanMove move -> 
       if model.gameState == Play Human then 
         let 
@@ -85,9 +95,6 @@ update msg model =
           )
       else 
         ( model, Cmd.none)
-    Highlight highlight -> ({model | highlight = Maybe.Just highlight}, Cmd.none)
-    UnHighlight -> ({model | highlight = Maybe.Nothing}, Cmd.none)
-    NewBoard newBoard -> ({model | board = newBoard}, Cmd.none)
     ComputerMove move -> 
       let 
         newBoard = boardAmend move model.board
@@ -98,13 +105,6 @@ update msg model =
             , gameState = newGameState
           }
         , Cmd.none
-        )
-    GoFirst player -> 
-      let 
-        newGameState = Play player
-      in
-        ({model | gameState = newGameState}
-        , if newGameState == Play Computer then computerPlay model.board else Cmd.none
         )
     ShowInstructions -> ({model | showInstructions = True }, Cmd.none)
     HideInstructions -> ({model | showInstructions = False}, Cmd.none)
