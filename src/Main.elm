@@ -41,8 +41,7 @@ type Msg =
   | GoFirst Player
   | Highlight (Int, Int) 
   | UnHighlight
-  | HumanMove (Int, Int)
-  | ComputerMove (Int, Int)
+  | Move (Int, Int)
   | ShowInstructions
   | HideInstructions
   | NewGame
@@ -81,31 +80,20 @@ update msg model =
         )
     Highlight highlight -> ({model | highlight = Maybe.Just highlight}, Cmd.none)
     UnHighlight -> ({model | highlight = Maybe.Nothing}, Cmd.none)
-    HumanMove move -> 
-      if model.gameState == Play Human then 
-        let 
-          newBoard = boardAmend move model.board 
-          newGameState = if (isBoardEmpty newBoard) then Winner Human else Play Computer
-        in 
-          ( { model
-              | board = newBoard
-              , gameState = newGameState 
-            }
+    Move move ->
+      case model.gameState of
+        Play player ->
+          let
+            newBoard = boardAmend move model.board
+            newGameState = if (isBoardEmpty newBoard) then Winner player else Play (oppositePlayer player)
+          in
+            ( { model
+                | board = newBoard
+                , gameState = newGameState
+              }
           , if newGameState == Play Computer then computerPlay newBoard else Cmd.none
           )
-      else 
-        ( model, Cmd.none)
-    ComputerMove move -> 
-      let 
-        newBoard = boardAmend move model.board
-        newGameState = if (isBoardEmpty newBoard) then Winner Computer else Play Human
-      in 
-        ( {  model
-            | board = newBoard
-            , gameState = newGameState
-          }
-        , Cmd.none
-        )
+        _ -> ( model, Cmd.none)
     ShowInstructions -> ({model | showInstructions = True }, Cmd.none)
     HideInstructions -> ({model | showInstructions = False}, Cmd.none)
     NewGame -> init ()
@@ -121,12 +109,18 @@ isBoardEmpty: Board -> Bool
 isBoardEmpty board = 
   List.foldr (+) 0 board == 0
 
+oppositePlayer: Player -> Player
+oppositePlayer player =
+  case player of
+    Human -> Computer
+    Computer -> Human
+
   -- computerPlay --
 
 computerPlay : Board -> Cmd Msg
 computerPlay board = 
   Process.sleep (2000)
-    |> Task.andThen (\_ -> Task.map ComputerMove (computerMove board))
+    |> Task.andThen (\_ -> Task.map Move (computerMove board))
     |> Task.perform identity
 
 computerMove: Board -> Task Never (Int, Int)
@@ -272,7 +266,7 @@ circleFromCoordinateAndHighlight ((x, y), highlight) =
       , cy (svgCoordinate y) 
       , r (String.fromInt(circleRadius)) 
       , fill (if (highlight) then blueHighlight else blueColour)
-      , onClick (HumanMove (x, y)) 
+      , onClick (Move (x, y))
       , onMouseOver (Highlight (x, y)) 
       , onMouseOut UnHighlight     
       ]      
